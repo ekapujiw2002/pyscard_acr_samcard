@@ -92,7 +92,28 @@ class ACR_Brizzi:
             data = sw1 = sw2 = None
             
         return data, sw1, sw2
-		
+        
+    def SAM_select(self):
+        try:
+            _, sw1, sw2 = self.sendAPDU(self.SAMCARD_SELECT)
+            select_result = sw1 == 0x90 and sw2 == 0
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            select_result = False
+        return select_result
+        
+    def cardSelectAID1(self):
+        try:
+            data, sw1, sw2 = self.sendAPDU(self.PICC_SELECT_AID1, False)
+            select_result = sw1 == 0x90 and sw2 == 0 and data[0] == 0
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            select_result = False
+        return select_result
+
 readerx = ACR_Brizzi(LOGGER_MAIN)
-readerx.sendAPDU(readerx.SAMCARD_SELECT)
+readerx.SAM_select()
+readerx.cardSelectAID1()
 readerx.closeConnection()
