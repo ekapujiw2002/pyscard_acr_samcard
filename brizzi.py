@@ -85,7 +85,7 @@ class ACR_Brizzi:
                 self._logger and self._logger.debug("Transmit to PICC = {}".format(apdu_text))
                 data, sw1, sw2 = self._reader_picc_connection.transmit(toBytes(apdu_text))
                 
-            self._logger and self._logger.debug("Reply = %s\r\nSW1 SW2 = %02X%02X".format(toHexString(data), sw1, sw2))
+            self._logger and self._logger.debug("Reply = %s\r\nSW1 SW2 = %02X%02X" % (toHexString(data), sw1, sw2))
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
