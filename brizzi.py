@@ -153,6 +153,6 @@ sam_connection.disconnect()
 picc_connection.disconnect()
 '''
 
-with ACR_Brizzi(LOGGER_MAIN) as readerx:
-    readerx.sendAPDU(readerx.SAMCARD_SELECT)
-    readerx.closeConnection()
+readerx = ACR_Brizzi(LOGGER_MAIN)
+readerx.sendAPDU(readerx.SAMCARD_SELECT)
+readerx.closeConnection()
