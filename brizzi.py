@@ -70,7 +70,7 @@ class ACR_Brizzi:
             pass
             self._logger and self._logger.error(err)
             
-    def closeConnection(self):
+    def closeAllConnection(self):
         try:
             try:
                 self._reader_picc_connection.disconnect()
@@ -84,6 +84,38 @@ class ACR_Brizzi:
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
+            
+    def cardCloseConnection(self):
+        try:
+            self._reader_picc_connection.disconnect()
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            
+    def cardOpenConnection(self):
+        try:
+            self._reader_picc_connection.connect()
+            return True
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            return False
+            
+    def SAMCloseConnection(self):
+        try:
+            self._reader_sam_connection.disconnect()
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            
+    def SAMOpenConnection(self):
+        try:
+            self._reader_sam_connection.connect()
+            return True
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            return False
             
     def sendAPDU(self, apdu_text=None, to_sam=True):
         try:
@@ -125,7 +157,7 @@ class ACR_Brizzi:
     def cardGetCardNumber(self):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_GET_CARD_NUMBER, False)
-            return data[4:12]
+            return toHexString(data[4:12], PACK)
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
@@ -143,14 +175,18 @@ class ACR_Brizzi:
     def cardSelectAID3(self):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_SELECT_AID3, False)
+            select_result = sw1 == 0x90 and sw2 == 0 and data[0] == 0
         except Exception as err:
             pass
             self._logger and self._logger.error(err)   
+            select_result = False
+            
+        return select_result
 
     def cardRequestKeyCard(self):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_REQUEST_KEY_CARD, False)
-            return data[1:].extend([sw1,sw2])
+            return toHexString(data[1:].extend([sw1,sw2]), PACK)
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
@@ -159,7 +195,7 @@ class ACR_Brizzi:
     def cardGetUID(self):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_GET_CARD_UID, False)
-            return data
+            return toHexString(data, PACK)
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
@@ -229,12 +265,18 @@ class ACR_Brizzi:
 if __name__ == "__main__":
     readerx = ACR_Brizzi(LOGGER_MAIN)
     readerx.SAMSelect()
-    readerx.cardSelectAID1()
-    readerx.cardGetCardNumber()
-    readerx.cardGetCardStatus()
-    readerx.cardSelectAID3()
-    readerx.cardRequestKeyCard()
-    readerx.cardGetUID()
-    readerx.cardGetLastTransactionDate()
-    readerx.cardGetBalance()
-    readerx.closeConnection()
+    
+    readerx.cardOpenConnection()
+    if readerx.cardSelectAID1():
+        card_num = readerx.cardGetCardNumber()
+        print("CARD NUMBER = ", card_num)
+        if readerx.cardGetCardStatus():
+            if readerx.cardSelectAID3():
+                card_key = readerx.cardRequestKeyCard()
+                card_uid = readerx.cardGetUID()
+                #readerx.cardGetLastTransactionDate()
+                #readerx.cardGetBalance()
+                print("CARD KEY = ", card_key)
+                print("CARD UID = ", card_uid)
+        
+    readerx.closeAllConnection()
