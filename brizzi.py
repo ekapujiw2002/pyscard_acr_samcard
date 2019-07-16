@@ -61,7 +61,8 @@ class ACR_Brizzi:
             self._reader_picc_connection = self._reader_picc.createConnection()
             self._reader_sam_connection = self._reader_sam.createConnection()
             
-            self._reader_picc_connection.connect()
+            # connect to picc only to check the card present or not
+            # self._reader_picc_connection.connect()
             self._reader_sam_connection.connect()
             
             self._logger and self._logger.debug("Initializing picc and samcard reader OK")
@@ -203,7 +204,7 @@ class ACR_Brizzi:
     def cardDebetBalance(self, debet_value=0):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_DEBET_BALANCE.format(binascii.hexlify((debet_value).to_bytes(3,'little')).decode()), False)
-            return return int.from_bytes(data[1:5],'big')
+            return int.from_bytes(data[1:5],'big')
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
@@ -227,7 +228,7 @@ class ACR_Brizzi:
 
 if __name__ == "__main__":
     readerx = ACR_Brizzi(LOGGER_MAIN)
-    readerx.SAM_select()
+    readerx.SAMSelect()
     readerx.cardSelectAID1()
     readerx.cardGetCardNumber()
     readerx.cardGetCardStatus()
