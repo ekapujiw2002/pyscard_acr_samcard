@@ -278,5 +278,7 @@ if __name__ == "__main__":
                 #readerx.cardGetBalance()
                 print("CARD KEY = ", card_key)
                 print("CARD UID = ", card_uid)
+                
+                readerx.SAMAuthenticateKey(card_num, card_uid, card_key)
         
     readerx.closeAllConnection()
