@@ -42,6 +42,8 @@ class ACR_Brizzi:
     PICC_GET_LAST_TRANSACTION_DATE = "BD03000000070000"
     PICC_GET_BALANCE = "6C00"
     PICC_DEBET_BALANCE = "DC00{:0<6.6}00"
+    PICC_COMMIT_TRANSACTION = "C7"
+    PICC_ABORT_TRANSACTION = "A7"
 
     def __init__(self, logger=None):
         try:
@@ -206,6 +208,22 @@ class ACR_Brizzi:
             pass
             self._logger and self._logger.error(err)
             return -1
+            
+    def cardCommitTransaction(self):
+        try:
+            data, sw1, sw2 = self.sendAPDU(self.PICC_COMMIT_TRANSACTION, False)
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            return False
+            
+    def cardAbortTransaction(self):
+        try:
+            data, sw1, sw2 = self.sendAPDU(self.PICC_ABORT_TRANSACTION, False)
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            return False
 
 if __name__ == "__main__":
     readerx = ACR_Brizzi(LOGGER_MAIN)
