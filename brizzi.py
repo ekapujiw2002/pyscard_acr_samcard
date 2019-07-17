@@ -1,6 +1,8 @@
 import logging
 import binascii
 from smartcard.System import readers
+from smartcard.CardConnectionObserver import ConsoleCardConnectionObserver
+from smartcard.CardConnection import CardConnection
 from smartcard.util import *
 
 '''
@@ -44,6 +46,7 @@ class ACR_Brizzi:
     PICC_DEBET_BALANCE = "DC00{:0<6.6}00"
     PICC_COMMIT_TRANSACTION = "C7"
     PICC_ABORT_TRANSACTION = "A7"
+    PDU_GET_MORE_DATA = "00C00000{:0<2X}"
 
     def __init__(self, logger=None):
         try:
@@ -60,6 +63,11 @@ class ACR_Brizzi:
             # create and open connection
             self._reader_picc_connection = self._reader_picc.createConnection()
             self._reader_sam_connection = self._reader_sam.createConnection()
+            
+            # add observer
+            self._reader_observer = ConsoleCardConnectionObserver()
+            self._reader_picc_connection.addObserver(self._reader_observer)
+            self._reader_sam_connection.addObserver(self._reader_observer)
             
             # connect to picc only to check the card present or not
             # self._reader_picc_connection.connect()
@@ -186,8 +194,7 @@ class ACR_Brizzi:
     def cardRequestKeyCard(self):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_REQUEST_KEY_CARD, False)
-            card_key = data[1:]
-            card_key = card_key.extend([sw1, sw2])
+            card_key = data[1:] + [sw1, sw2]
             return toHexString(card_key, PACK)
         except Exception as err:
             pass
@@ -203,10 +210,25 @@ class ACR_Brizzi:
             self._logger and self._logger.error(err)
             return None
             
+    def pduGetMoreData(self, data_len=0, to_sam=True):
+        try:
+            return self.sendAPDU(self.PDU_GET_MORE_DATA.format(data_len), to_sam)
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            return None
+            
     def SAMAuthenticateKey(self, card_number_in, card_uid_in, key_card_in):
         try:
             data, sw1, sw2 = self.sendAPDU(self.SAMCARD_AUTH_KEY.format(card_number=card_number_in, card_uid=card_uid_in, key_card=key_card_in))
-            return data
+            random_key = None
+            if sw1 == 0x61:
+                data, sw1, sw2 = self.pduGetMoreData(sw2)
+                if sw1 == 0x90 and sw2 == 0x00:
+                    random_key = toHexString(data[-16:], PACK)
+            else:
+                random_key = None
+            return random_key
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
@@ -281,6 +303,7 @@ if __name__ == "__main__":
                 print("CARD KEY = ", card_key)
                 print("CARD UID = ", card_uid)
                 
-                readerx.SAMAuthenticateKey(card_num, card_uid, card_key)
+                random_key = readerx.SAMAuthenticateKey(card_num, card_uid, card_key)
+                print("RANDOM KEY = ", random_key)
         
     readerx.closeAllConnection()
