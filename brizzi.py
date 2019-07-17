@@ -186,7 +186,9 @@ class ACR_Brizzi:
     def cardRequestKeyCard(self):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_REQUEST_KEY_CARD, False)
-            return toHexString(data[1:].extend([sw1,sw2]), PACK)
+            card_key = data[1:]
+            card_key = card_key.extend([sw1, sw2])
+            return toHexString(card_key, PACK)
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
