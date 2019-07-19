@@ -48,7 +48,9 @@ class ACR_Brizzi:
     PICC_DEBET_BALANCE = "DC00{:0<6.6}00"
     PICC_COMMIT_TRANSACTION = "C7"
     PICC_ABORT_TRANSACTION = "A7"
-    PDU_GET_MORE_DATA = "00C00000{:0<2X}"
+    PDU_GET_MORE_DATA = "00C00000{:0>2X}"
+    PICC_WRITE_LOG = "3B01000000200000{:0<16.16}{:0<16.16}{:0<6.6}{:0<6.6}EB{:0<6.6}{:0<6.6}{:0<6.6}"
+    PICC_WRITE_LAST_TRANSACTION = "3D03000000070000{:0<6.6}{:0<8.8}"
 
     def __init__(self, logger=None):
         try:
@@ -238,25 +240,29 @@ class ACR_Brizzi:
             
     def SAMCreateHash(self, card_number_in, card_uid_in, card_random_number_in, debet_value, proc_code=808117, ref_number=36, batch_num=3):
         try:
-            data, sw1, sw2 = self.sendAPDU(self.SAMCARD_CREATE_HASH.format(card_number_in, 
+            pdu_txt = self.SAMCARD_CREATE_HASH.format(card_number_in, 
             card_uid_in, 
             card_random_number_in,
             toHexString(toASCIIBytes(card_number_in), PACK),
-            toHexString(toASCIIBytes("{:0<10.10}".format(int(float(debet_value)*100))), PACK),
-            time.strftime("%d%m%y"),
-            time.strftime("%H%M%I"),
-            toHexString(toASCIIBytes("{:0<6}".format(proc_code))),
-            toHexString(toASCIIBytes("{:0<6}".format(ref_number))),
-            toHexString(toASCIIBytes("{:0<2}".format(batch_num)))
-            ))
+            toHexString(toASCIIBytes("{:0<10}".format(int(float(debet_value)*100))), PACK),
+            toHexString(toASCIIBytes("{:0<12}".format(time.strftime("%d%m%y"))), PACK),
+            toHexString(toASCIIBytes("{:0<12}".format(time.strftime("%H%M%I"))), PACK),
+            toHexString(toASCIIBytes("{:0>6d}".format(proc_code)), PACK),
+            toHexString(toASCIIBytes("{:0>6d}".format(ref_number)), PACK),
+            toHexString(toASCIIBytes("{:0>2d}".format(batch_num)), PACK)
+            )
+            #print(pdu_txt)
+    
+            data, sw1, sw2 = self.sendAPDU(pdu_txt)
             hash_value = None
             if sw1 == 0x61:
                 data, sw1, sw2 = self.pduGetMoreData(sw2)
                 if sw1 == 0x90 and sw2 == 0x00:
-                    hash_value = toHexString(data[-16:], PACK)
+                    hash_value = toHexString(data, PACK)
             else:
                 hash_value = None
             return hash_value
+            
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
@@ -281,7 +287,7 @@ class ACR_Brizzi:
             if data[0] != 0x00:
                 data = None
             else:
-                data = "{:02X}-{:02X}-20{:02X}".format(data[3],data[2],data[1]), int.from_bytes(data[4:]+[sw1,sw2],'big')
+                data = time.strptime("{:02X}{:02X}{:02X}".format(data[1],data[2],data[3]), "%y%m%d"), int.from_bytes(data[4:]+[sw1,sw2],'big')
                 
             return data
         except Exception as err:
@@ -304,21 +310,15 @@ class ACR_Brizzi:
             
     def cardDebetBalance(self, debet_value=0):
         try:
-#            apdu = self.PICC_DEBET_BALANCE.format(binascii.hexlify((debet_value).to_bytes(3,'little')).decode())
-#            self._logger and self._logger.debug(apdu)
             data, sw1, sw2 = self.sendAPDU(self.PICC_DEBET_BALANCE.format(binascii.hexlify((debet_value).to_bytes(3,'little')).decode()), False)
-            balance = 0
-            if data[0] == 0x00:
-                balance = int.from_bytes(data[1:]+[sw1,sw2],'little')
-            else:
-                balance = -2
-             
+            return data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            balance = -1
+            #balance = -1
+            return False
             
-        return balance
+        #return balance
             
     def cardCommitTransaction(self):
         try:
@@ -331,6 +331,39 @@ class ACR_Brizzi:
     def cardAbortTransaction(self):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_ABORT_TRANSACTION, False)
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            return False
+            
+    def cardWriteLog(self,mid="0",tid="0",debet_value=0,balance_before=0,balance_after=0):
+        try:
+            pdu = self.PICC_WRITE_LOG.format(
+            mid, tid,
+            time.strftime("%y%m%d"),
+            time.strftime("%H%M%I"),
+            binascii.hexlify((debet_value).to_bytes(3,'little')).decode(),
+            binascii.hexlify((balance_before).to_bytes(3,'little')).decode(),
+            binascii.hexlify((balance_after).to_bytes(3,'little')).decode()
+            )
+            #print(pdu)
+            data, sw1, sw2 = self.sendAPDU(pdu, False)
+            return data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            return False
+            
+    def cardWriteLastTransaction(self,last_trans_date,last_akum_debet,debet_value=0):
+        try:
+            akum_debet_total = debet_value
+            if last_trans_date.tm_mon == int(time.strftime("%m")):
+                akum_debet_total += last_akum_debet
+            data, sw1, sw2 = self.sendAPDU(self.PICC_WRITE_LAST_TRANSACTION.format(
+            time.strftime("%y%m%d"),
+            binascii.hexlify((akum_debet_total).to_bytes(4,'big')).decode()
+            ), False)
+            return data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
@@ -363,9 +396,19 @@ if __name__ == "__main__":
                     LOGGER_MAIN.info("LAST TRANS DATA = {}".format(last_trans_data))
                     LOGGER_MAIN.info("BALANCE = {}".format(balance))
                     
-                    balance_after_debet = readerx.cardDebetBalance(1)
+                    debet_amount = 1
+                    debet_status = readerx.cardDebetBalance(debet_amount) and "OK" or "ERROR"
                     #balance = readerx.cardGetBalance()
-                    LOGGER_MAIN.info("DEBET BALANCE = {} -- {}".format(balance_after_debet, balance))
+                    LOGGER_MAIN.info("DEBET BALANCE = {}".format(debet_status))
+                    
+                    sam_hash = readerx.SAMCreateHash(card_num, card_uid, card_random_number, debet_amount)
+                    LOGGER_MAIN.info("SAM HASH = {}".format(sam_hash))
+                    
+                    readerx.cardWriteLog("12345678","00112233",debet_amount,balance,balance-debet_amount)
+                    
+                    readerx.cardWriteLastTransaction(last_trans_data[0], last_trans_data[1],debet_amount)
+                    
+                    readerx.cardCommitTransaction()
                 
         
     readerx.closeAllConnection()
