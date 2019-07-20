@@ -52,9 +52,12 @@ class ACR_Brizzi:
     PICC_WRITE_LOG = "3B01000000200000{:0<16.16}{:0<16.16}{:0<6.6}{:0<6.6}EB{:0<6.6}{:0<6.6}{:0<6.6}"
     PICC_WRITE_LAST_TRANSACTION = "3D03000000070000{:0<6.6}{:0<8.8}"
 
-    def __init__(self, logger=None):
+    def __init__(self, logger=None, mid="1122334455667788", tid="aabbccddeeff0000"):
         try:
+            # get setting
             self._logger = logger
+            self._mid = mid
+            self._tid = tid
             
             # get connected readers
             self._readers = readers()
@@ -224,19 +227,20 @@ class ACR_Brizzi:
             
     def SAMAuthenticateKey(self, card_number_in, card_uid_in, key_card_in):
         try:
-            data, sw1, sw2 = self.sendAPDU(self.SAMCARD_AUTH_KEY.format(card_number=card_number_in, card_uid=card_uid_in, key_card=key_card_in))
             random_key = None
+            data, sw1, sw2 = self.sendAPDU(self.SAMCARD_AUTH_KEY.format(card_number=card_number_in, card_uid=card_uid_in, key_card=key_card_in))            
             if sw1 == 0x61:
                 data, sw1, sw2 = self.pduGetMoreData(sw2)
                 if sw1 == 0x90 and sw2 == 0x00:
                     random_key = toHexString(data[-16:], PACK)
             else:
                 random_key = None
-            return random_key
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            return None
+            random_key = None
+            
+        return random_key
             
     def SAMCreateHash(self, card_number_in, card_uid_in, card_random_number_in, debet_value, proc_code=808117, ref_number=36, batch_num=3):
         try:
@@ -261,39 +265,44 @@ class ACR_Brizzi:
                     hash_value = toHexString(data, PACK)
             else:
                 hash_value = None
-            return hash_value
             
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            return None
+            hash_value = None
+            
+        return hash_value
             
     def cardAuthenticate(self, random_key_in):
         try:
+            card_random_number = None
             data, sw1, sw2 = self.sendAPDU(self.PICC_CARD_AUTH.format(random_key_in), False)
             if data[0] == 0x00:
-                data = toHexString(data[1:9]+[sw1,sw2], PACK)
+                card_random_number = toHexString(data[1:9]+[sw1,sw2], PACK)
             else:
-                data = None
-            return data
+                card_random_number = None
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            return None
+            card_random_number = None
+            
+        return card_random_number
             
     def cardGetLastTransactionDate(self):
         try:
+            last_trans_data = None, None
             data, sw1, sw2 = self.sendAPDU(self.PICC_GET_LAST_TRANSACTION_DATE, False)
             if data[0] != 0x00:
-                data = None
+                last_trans_data = None, None
             else:
-                data = time.strptime("{:02X}{:02X}{:02X}".format(data[1],data[2],data[3]), "%y%m%d"), int.from_bytes(data[4:]+[sw1,sw2],'big')
+                last_trans_data = time.strptime("{:02X}{:02X}{:02X}".format(data[1],data[2],data[3]), "%y%m%d"), int.from_bytes(data[4:]+[sw1,sw2],'big')
                 
-            return data
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            return None
+            last_trans_data = None, None
+            
+        return last_trans_data
             
     def cardGetBalance(self):
         try:
@@ -311,35 +320,41 @@ class ACR_Brizzi:
     def cardDebetBalance(self, debet_value=0):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_DEBET_BALANCE.format(binascii.hexlify((debet_value).to_bytes(3,'little')).decode()), False)
-            return data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
+            debet_status = data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            #balance = -1
-            return False
+            debet_status = False
             
-        #return balance
+        return debet_status
             
     def cardCommitTransaction(self):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_COMMIT_TRANSACTION, False)
+            commit_result = data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            return False
+            commit_result = False
+            
+        return commit_result
             
     def cardAbortTransaction(self):
         try:
             data, sw1, sw2 = self.sendAPDU(self.PICC_ABORT_TRANSACTION, False)
+            abort_result = data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            return False
+            abort_result = False
             
-    def cardWriteLog(self,mid="0",tid="0",debet_value=0,balance_before=0,balance_after=0):
+        return abort_result
+            
+    def cardWriteLog(self,debet_value=0,balance_before=0,balance_after=0,mid=None,tid=None):
         try:
             pdu = self.PICC_WRITE_LOG.format(
-            mid, tid,
+            mid and mid or self._mid, 
+            tid and tid or self._tid,
             time.strftime("%y%m%d"),
             time.strftime("%H%M%I"),
             binascii.hexlify((debet_value).to_bytes(3,'little')).decode(),
@@ -348,11 +363,13 @@ class ACR_Brizzi:
             )
             #print(pdu)
             data, sw1, sw2 = self.sendAPDU(pdu, False)
-            return data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
+            result = data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            return False
+            result = False
+            
+        return result
             
     def cardWriteLastTransaction(self,last_trans_date,last_akum_debet,debet_value=0):
         try:
@@ -363,52 +380,108 @@ class ACR_Brizzi:
             time.strftime("%y%m%d"),
             binascii.hexlify((akum_debet_total).to_bytes(4,'big')).decode()
             ), False)
-            return data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
+            result = data[0] == 0x00 and sw1 == 0x90 and sw2 == 0x00
         except Exception as err:
             pass
             self._logger and self._logger.error(err)
-            return False
+            result = False
+            
+        return result
+            
+    def transactionDebetCard(self, debet_amount=0, mid=None, tid=None, proc_code=808117, ref_number=1, batch_number=1):
+        try:
+            transaction_result = {
+                'status': False,
+                'card_number': "",
+                'transaction_date': "0000-00-00",
+                'transaction_time': "00:00:00",
+                'balance': 0,
+                'amount': 0,
+                'ref_number': 0,
+                'batch_number': 0,
+                'mid': '',
+                'tid': '',
+                'hash': '00000000'
+            }
+            
+            # step 1
+            transaction_result.update(
+                {
+                    'transaction_date': time.strftime("%Y-%m-%d"),
+                    'transaction_time': time.strftime("%H:%M:%I"),
+                    'amount': debet_amount,
+                    'mid': mid and mid or self._mid,
+                    'tid': tid and tid or self._tid,
+                    'ref_number': ref_number,
+                    'batch_number': batch_number
+                }
+            )
+            
+            if self.cardOpenConnection():
+                if self.SAMSelect():
+                    # step 2
+                    if self.cardSelectAID1():
+                        # step 3
+                        card_number = self.cardGetCardNumber()
+                        transaction_result['card_number'] = card_number
+                        if card_number is not None:
+                            # step 4
+                            if self.cardGetCardStatus():
+                                # step 5
+                                if self.cardSelectAID3():
+                                    # step 6
+                                    card_key = self.cardRequestKeyCard()
+                                    if card_key is not None:
+                                        # step 7
+                                        card_uid = self.cardGetUID()
+                                        if card_uid is not None:
+                                            # step 8
+                                            sam_random_key = self.SAMAuthenticateKey(card_number, card_uid, card_key)
+                                            if sam_random_key is not None:
+                                                # step 9
+                                                card_random_number = self.cardAuthenticate(sam_random_key)
+                                                if card_random_number is not None:
+                                                    # step 10
+                                                    last_trans_date, last_trans_akum_debet = self.cardGetLastTransactionDate()
+                                                    if last_trans_date is not None and last_trans_akum_debet is not None:
+                                                        # step 11
+                                                        card_balance = self.cardGetBalance()
+                                                        transaction_result['balance'] = card_balance
+                                                        if card_balance >= 0:
+                                                            # step 12
+                                                            if self.cardDebetBalance(debet_amount):
+                                                                # step 13
+                                                                sam_hash = self.SAMCreateHash(card_number, card_uid, card_random_number, debet_amount, proc_code, ref_number, batch_number)
+                                                                transaction_result['hash'] = sam_hash
+                                                                if sam_hash is not None:
+                                                                    # step 14
+                                                                    if self.cardWriteLog(debet_amount, card_balance, card_balance-debet_amount, transaction_result['mid'], transaction_result['tid']):
+                                                                        #step 15
+                                                                        if self.cardWriteLastTransaction(last_trans_date, last_trans_akum_debet, debet_amount):
+                                                                            # step 16
+                                                                            if self.cardCommitTransaction():
+                                                                                transaction_result['status'] = True
+                                                                            else:
+                                                                                self.cardAbortTransaction()
+                                                                        else:
+                                                                            self.cardAbortTransaction()                                                                    
+                                                                    else:
+                                                                        self.cardAbortTransaction()
+                                                                else:
+                                                                    self.cardAbortTransaction()
+                                                            else:
+                                                                self.cardAbortTransaction()
+            self.cardCloseConnection()
+        except Exception as err:
+            pass
+            self._logger and self._logger.error(err)
+            transaction_result['status'] = False
+            self.cardCloseConnection()
+            
+        return transaction_result
 
 if __name__ == "__main__":
-    readerx = ACR_Brizzi(LOGGER_MAIN)
-    readerx.SAMSelect()
-    
-    if readerx.cardOpenConnection():
-        if readerx.cardSelectAID1():
-            card_num = readerx.cardGetCardNumber()
-            LOGGER_MAIN.info("CARD NUMBER = {}".format(card_num))
-            if readerx.cardGetCardStatus():
-                if readerx.cardSelectAID3():
-                    card_key = readerx.cardRequestKeyCard()
-                    card_uid = readerx.cardGetUID()                
-                    LOGGER_MAIN.info("CARD KEY = {}".format(card_key))
-                    LOGGER_MAIN.info("CARD UID = {}".format(card_uid))
-                    
-                    random_key = readerx.SAMAuthenticateKey(card_num, card_uid, card_key)
-                    LOGGER_MAIN.info("SAM RANDOM KEY = {}".format(random_key))
-                    
-                    card_random_number = readerx.cardAuthenticate(random_key)
-                    LOGGER_MAIN.info("CARD RANDOM NUMBER = {}".format(card_random_number))
-                    
-                    last_trans_data = readerx.cardGetLastTransactionDate()
-                    balance = readerx.cardGetBalance()
-                    
-                    LOGGER_MAIN.info("LAST TRANS DATA = {}".format(last_trans_data))
-                    LOGGER_MAIN.info("BALANCE = {}".format(balance))
-                    
-                    debet_amount = 1
-                    debet_status = readerx.cardDebetBalance(debet_amount) and "OK" or "ERROR"
-                    #balance = readerx.cardGetBalance()
-                    LOGGER_MAIN.info("DEBET BALANCE = {}".format(debet_status))
-                    
-                    sam_hash = readerx.SAMCreateHash(card_num, card_uid, card_random_number, debet_amount)
-                    LOGGER_MAIN.info("SAM HASH = {}".format(sam_hash))
-                    
-                    readerx.cardWriteLog("12345678","00112233",debet_amount,balance,balance-debet_amount)
-                    
-                    readerx.cardWriteLastTransaction(last_trans_data[0], last_trans_data[1],debet_amount)
-                    
-                    readerx.cardCommitTransaction()
-                
-        
+    readerx = ACR_Brizzi(LOGGER_MAIN)        
+    debet_result = readerx.transactionDebetCard(1)
+    LOGGER_MAIN.info(debet_result)
     readerx.closeAllConnection()
